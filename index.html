@@ -167,6 +167,8 @@
     background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; width: 100%;
   }
   .dlg-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .check { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 8px; }
+  .check input { margin-top: 4px; }
   .sep { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
 
   @media (prefers-reduced-motion: reduce) { .bar i { transition: none; } }
@@ -208,6 +210,7 @@
         <option value="name">Name A to Z</option>
       </select>
       <span class="note" id="count"></span>
+      <span class="note" id="syncStatus" aria-live="polite"></span>
     </div>
   </section>
 
@@ -230,10 +233,14 @@
   </label>
   <label>GitHub token (optional)
     <input id="token" type="password" autocomplete="off" placeholder="Leave empty to skip">
-    <span class="note">Without a token GitHub allows about 10 searches a minute, which is enough. A token with no permissions ticked makes fetching faster. It is kept only in this browser.</span>
+    <span class="note">Without a token GitHub allows about 10 searches a minute, which is enough. A token makes fetching faster. For syncing it must be allowed to write gists: a classic token with only "gist" ticked, or a fine-grained token with Account permissions, Gists, Read and write. It is kept only in this browser.</span>
   </label>
+  <label class="check"><input type="checkbox" id="syncOn"><span>Sync my devices with a private GitHub Gist</span></label>
+  <p class="note" style="margin:0 0 6px">GoGitIt keeps one private gist called "GoGitIt sync" in your account. It holds your wishlist, the last 7 days of batches, and the repos you've already seen, so nothing repeats on your other devices. On each device, paste a token and turn this on.</p>
+  <p class="note" id="syncInfo" style="margin:0 0 12px"></p>
   <div class="dlg-actions">
     <button class="btn primary" id="saveSettings" type="button">Save</button>
+    <button class="btn" id="btnSyncNow" type="button">Sync now</button>
     <button class="btn" id="closeSettings" type="button">Cancel</button>
   </div>
   <hr class="sep">
@@ -301,12 +308,14 @@
   }
 
   /* ---------- Settings (browser only) ---------- */
-  var settings = { token: "", minStars: 300 };
+  var settings = { token: "", minStars: 300, syncOn: false, gistId: "" };
   function loadSettings() {
     try {
       var s = JSON.parse(localStorage.getItem("gogitit.settings") || "{}");
       if (typeof s.token === "string") settings.token = s.token;
       if (typeof s.minStars === "number" && s.minStars >= 0) settings.minStars = s.minStars;
+      if (typeof s.syncOn === "boolean") settings.syncOn = s.syncOn;
+      if (typeof s.gistId === "string") settings.gistId = s.gistId;
     } catch (e) {}
   }
   function storeSettings() {
@@ -360,13 +369,15 @@
   var state = {
     repos: new Map(), pool: [], cursors: {}, lastRefresh: null,
     tab: "today", cat: "all", lang: "", day: "", sort: "stars", q: "", limit: 60,
-    running: false, openId: null, lastFocus: null
+    running: false, openId: null, lastFocus: null,
+    seenOnly: new Set(), syncing: false, lastSync: 0, syncTimer: null
   };
   function saveMeta() {
     return Promise.all([
       dbSetMeta("pool", state.pool),
       dbSetMeta("cursors", state.cursors),
-      dbSetMeta("lastRefresh", state.lastRefresh)
+      dbSetMeta("lastRefresh", state.lastRefresh),
+      dbSetMeta("seenOnly", Array.from(state.seenOnly))
     ]);
   }
 
@@ -456,7 +467,7 @@
         var result = await searchPage(q, cur.page);
         var known = new Set(state.pool.map(function (p) { return p.id; }));
         result.items.forEach(function (it) {
-          if (!isUseful(it) || state.repos.has(it.id) || known.has(it.id)) return;
+          if (!isUseful(it) || state.repos.has(it.id) || state.seenOnly.has(it.id) || known.has(it.id)) return;
           known.add(it.id);
           state.pool.push(norm(it, cat));
         });
@@ -498,11 +509,12 @@
     b.hidden = false;
   }
   function hideBanner() { $("#banner").hidden = true; }
-  async function refresh() {
+  async function refresh(mode) {
     if (state.running) return;
     var need = BATCH - todaysCount();
     if (need <= 0) {
-      showBanner("", el("span", { text: "You already have today's 100. Come back tomorrow for a fresh batch." }));
+      if (mode === "auto") { state.lastRefresh = today(); saveMeta().catch(function () {}); }
+      else showBanner("", el("span", { text: "You already have today's 100. Come back tomorrow for a fresh batch." }));
       return;
     }
     state.running = true;
@@ -531,12 +543,12 @@
       var when = failure.resetAt ? failure.resetAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "in about a minute";
       showBanner("warn", [
         el("span", { text: (picks.length ? "Saved " + picks.length + " new repos, then " : "") + "GitHub's search limit was reached. Try again " + (failure.resetAt ? "after " : "") + when + "." }),
-        el("button", { class: "btn", type: "button", text: "Try again", onclick: refresh })
+        el("button", { class: "btn", type: "button", text: "Try again", onclick: function () { refresh(); } })
       ]);
     } else if (failure) {
       showBanner("bad", [
         el("span", { text: failure.message }),
-        el("button", { class: "btn", type: "button", text: "Try again", onclick: refresh })
+        el("button", { class: "btn", type: "button", text: "Try again", onclick: function () { refresh(); } })
       ]);
     } else if (!picks.length) {
       showBanner("warn", el("span", { text: "No new repos match right now. You've seen everything in the pool. Lower the minimum stars in Settings to widen it." }));
@@ -551,6 +563,7 @@
     state.limit = 60;
     syncTabs();
     render();
+    scheduleSync();
   }
 
   /* ---------- Business profiles ---------- */
@@ -913,13 +926,129 @@
     $("#more").textContent = "Show more (" + Math.max(0, list.length - state.limit) + " left)";
   }
 
+  /* ---------- Sync through a private gist ---------- */
+  var GIST_FILE = "gogitit-sync.json", GIST_DESC = "GoGitIt sync", KEEP_DAYS = 7;
+  function syncReady() { return settings.syncOn && !!settings.token; }
+  function setSyncStatus(text) {
+    $("#syncStatus").textContent = text;
+    $("#syncInfo").textContent = text;
+  }
+  async function gistCall(path, method, body) {
+    var headers = { "Accept": "application/vnd.github+json", "Authorization": "Bearer " + settings.token };
+    if (body) headers["Content-Type"] = "application/json";
+    var res;
+    try { res = await fetch("https://api.github.com" + path, { method: method || "GET", headers: headers, body: body }); }
+    catch (e) { throw new Error("Couldn't reach GitHub to sync."); }
+    if (res.status === 401) throw new Error("GitHub rejected your token. Check it in Settings.");
+    if (res.status === 403) throw new Error("Your token isn't allowed to use gists. Give it gist (read and write) permission.");
+    return res;
+  }
+  async function findGist() {
+    for (var page = 1; page <= 5; page++) {
+      var res = await gistCall("/gists?per_page=100&page=" + page);
+      if (!res.ok) throw new Error("GitHub returned an error (" + res.status + ") while syncing.");
+      var list = await res.json();
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].description === GIST_DESC && list[i].files && list[i].files[GIST_FILE]) return list[i].id;
+      }
+      if (list.length < 100) break;
+    }
+    return "";
+  }
+  async function getGist(id) {
+    var res = await gistCall("/gists/" + id);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error("GitHub returned an error (" + res.status + ") while syncing.");
+    var g = await res.json();
+    var f = g.files && g.files[GIST_FILE];
+    if (!f) return { repos: [], seen: [] };
+    var text = f.content;
+    if (f.truncated && f.raw_url) {
+      try { text = await (await fetch(f.raw_url)).text(); }
+      catch (e) { throw new Error("The sync file is too large to download. Export a backup instead."); }
+    }
+    try { return JSON.parse(text); } catch (e) { throw new Error("The sync gist is not readable. Delete it on GitHub and sync again."); }
+  }
+  async function putGist(id, content) {
+    var files = {}; files[GIST_FILE] = { content: content };
+    var res;
+    if (id) {
+      res = await gistCall("/gists/" + id, "PATCH", JSON.stringify({ files: files }));
+      if (res.status === 404) id = "";
+    }
+    if (!id) res = await gistCall("/gists", "POST", JSON.stringify({ description: GIST_DESC, public: false, files: files }));
+    if (!res.ok) throw new Error("GitHub returned an error (" + res.status + ") while saving the sync.");
+    var g = await res.json();
+    return g.id || id;
+  }
+  function buildPayload() {
+    var cutoff = ymd(new Date(Date.now() - KEEP_DAYS * 86400000));
+    var repos = [], seen = [];
+    state.repos.forEach(function (r) {
+      if (r.starred || r.starTs || (r.addedOn && r.addedOn >= cutoff)) {
+        var c = Object.assign({}, r); delete c.html_url; repos.push(c);
+      } else seen.push(r.id);
+    });
+    state.seenOnly.forEach(function (id) { seen.push(id); });
+    return { app: "GoGitIt", version: 2, updatedAt: new Date().toISOString(), repos: repos, seen: seen };
+  }
+  function mergeRemote(data) {
+    var changed = [];
+    (data.repos || []).forEach(function (rr) {
+      if (!rr || !rr.id || !rr.full_name || !isOpenSource(rr.license)) return;
+      rr.html_url = rr.html_url || "https://github.com/" + rr.full_name;
+      var have = state.repos.get(rr.id);
+      if (!have) { state.repos.set(rr.id, rr); state.seenOnly.delete(rr.id); changed.push(rr); return; }
+      if ((rr.starTs || 0) > (have.starTs || 0)) { have.starred = !!rr.starred; have.starTs = rr.starTs; changed.push(have); }
+    });
+    (data.seen || []).forEach(function (id) { if (!state.repos.has(id)) state.seenOnly.add(id); });
+    state.pool = state.pool.filter(function (p) { return !state.repos.has(p.id) && !state.seenOnly.has(p.id); });
+    if (todaysCount() >= BATCH) state.lastRefresh = today();
+    return changed;
+  }
+  async function syncNow() {
+    if (!syncReady() || state.syncing) return false;
+    state.syncing = true;
+    setSyncStatus("Syncing...");
+    try {
+      var id = settings.gistId, remote = null;
+      if (id) { remote = await getGist(id); if (remote === null) id = ""; }
+      if (!id) { id = await findGist(); if (id) remote = await getGist(id); }
+      if (remote) {
+        var changed = mergeRemote(remote);
+        if (changed.length) await dbPutRepos(changed);
+        await saveMeta();
+      }
+      id = await putGist(id, JSON.stringify(buildPayload()));
+      settings.gistId = id;
+      storeSettings();
+      state.lastSync = Date.now();
+      setSyncStatus("Synced at " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+      render();
+      return true;
+    } catch (e) {
+      setSyncStatus("Sync failed: " + e.message);
+      return false;
+    } finally { state.syncing = false; }
+  }
+  function scheduleSync() {
+    if (!syncReady()) return;
+    clearTimeout(state.syncTimer);
+    state.syncTimer = setTimeout(function () {
+      if (state.syncing) { scheduleSync(); return; }
+      syncNow();
+    }, 2500);
+  }
+
   /* ---------- Wishlist ---------- */
   function toggleStar(id) {
     var r = state.repos.get(id);
     if (!r) return;
     r.starred = !r.starred;
+    r.starTs = Date.now();
     dbPutRepos([r]).catch(function () {});
     render();
+    scheduleSync();
     if (state.openId === id) renderDetail(r);
   }
 
@@ -997,7 +1126,7 @@
   function exportBackup() {
     var data = {
       app: "GoGitIt", version: 1, exportedAt: new Date().toISOString(),
-      repos: allRepos(), pool: state.pool, cursors: state.cursors, lastRefresh: state.lastRefresh
+      repos: allRepos(), seen: Array.from(state.seenOnly), pool: state.pool, cursors: state.cursors, lastRefresh: state.lastRefresh
     };
     var blob = new Blob([JSON.stringify(data)], { type: "application/json" });
     var a = el("a", { href: URL.createObjectURL(blob), download: "gogitit-backup-" + today() + ".json" });
@@ -1017,6 +1146,7 @@
         if (have) { if (r.starred && !have.starred) { have.starred = true; added.push(have); } return; }
         state.repos.set(r.id, r); added.push(r);
       });
+      if (Array.isArray(data.seen)) data.seen.forEach(function (id) { if (!state.repos.has(id)) state.seenOnly.add(id); });
       if (Array.isArray(data.pool)) {
         var known = new Set(state.pool.map(function (p) { return p.id; }));
         data.pool.forEach(function (p) { if (p && p.id && isOpenSource(p.license) && !known.has(p.id) && !state.repos.has(p.id)) state.pool.push(p); });
@@ -1081,15 +1211,32 @@
   $("#btnSettings").addEventListener("click", function () {
     $("#minStars").value = settings.minStars;
     $("#token").value = settings.token;
+    $("#syncOn").checked = settings.syncOn;
+    $("#syncInfo").textContent = syncReady() ? ($("#syncStatus").textContent || "") : "";
     $("#settings").showModal();
   });
   $("#closeSettings").addEventListener("click", function () { $("#settings").close(); });
   $("#saveSettings").addEventListener("click", function () {
     var n = parseInt($("#minStars").value, 10);
+    var token = $("#token").value.trim();
+    var wantSync = $("#syncOn").checked;
+    if (wantSync && !token) {
+      $("#syncInfo").textContent = "Add a GitHub token first, then turn sync on.";
+      $("#syncOn").checked = false;
+      return;
+    }
     settings.minStars = isNaN(n) || n < 0 ? 300 : n;
-    settings.token = $("#token").value.trim();
+    settings.token = token;
+    settings.syncOn = wantSync;
+    if (!wantSync) settings.gistId = settings.gistId;
     storeSettings();
     $("#settings").close();
+    if (settings.syncOn) syncNow();
+    else setSyncStatus("");
+  });
+  $("#btnSyncNow").addEventListener("click", function () {
+    if (!syncReady()) { $("#syncInfo").textContent = "Save a token and turn sync on first."; return; }
+    syncNow();
   });
   $("#btnExport").addEventListener("click", exportBackup);
   $("#btnImport").addEventListener("click", function () { $("#importFile").click(); });
@@ -1100,7 +1247,10 @@
   });
 
   document.addEventListener("visibilitychange", function () {
-    if (!document.hidden && state.lastRefresh !== today() && !state.running && db !== undefined) refresh();
+    if (document.hidden) return;
+    if (syncReady() && !state.syncing && Date.now() - state.lastSync > 60000) {
+      syncNow().then(function () { if (state.lastRefresh !== today() && !state.running) refresh("auto"); });
+    } else if (state.lastRefresh !== today() && !state.running) refresh("auto");
   });
 
   /* ---------- Start ---------- */
@@ -1118,6 +1268,7 @@
       state.pool = (await dbGetMeta("pool")) || [];
       state.cursors = (await dbGetMeta("cursors")) || {};
       state.lastRefresh = (await dbGetMeta("lastRefresh")) || null;
+      state.seenOnly = new Set((await dbGetMeta("seenOnly")) || []);
     } catch (e) {}
     var drop = [];
     state.repos.forEach(function (r) { if (!isOpenSource(r.license)) drop.push(r.id); });
@@ -1126,7 +1277,8 @@
     if (drop.length) { try { await dbDeleteRepos(drop); await saveMeta(); } catch (e) {} }
     syncTabs();
     render();
-    if (state.lastRefresh !== today() || todaysCount() === 0) refresh();
+    if (syncReady()) { await syncNow(); render(); }
+    if (state.lastRefresh !== today() || todaysCount() === 0) refresh("auto");
   }
   start();
 })();
