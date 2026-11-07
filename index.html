@@ -1,0 +1,1135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GoGitIt</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: sticky header with stats, a filter bar, a grid of repo cards, and a side panel that opens the business cards for one repo. Dark only. */
+  :root {
+    --bg: #11131a;
+    --panel: #181b25;
+    --panel-2: #212534;
+    --line: #2d3245;
+    --text: #ecebf5;
+    --muted: #9d9bb3;
+    --accent: #8c97ff;
+    --accent-ink: #0b0f33;
+    --star: #ffc83d;
+    --good: #7fdca0;
+    --warn: #ffb067;
+    --bad: #ff8a96;
+    --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+    --font-ui: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --font-num: "IBM Plex Mono", Consolas, ui-monospace, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html { background: var(--bg); }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: 15px;
+    line-height: 1.5;
+    padding-block: 24px 64px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 18px; min-width: 0; }
+
+  .top { display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: flex-end; justify-content: space-between; }
+  .brand h1 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: clamp(2rem, 6vw, 2.9rem);
+    line-height: 1;
+    letter-spacing: -0.03em;
+    font-weight: 700;
+  }
+  .brand h1 span { color: var(--accent); }
+  .brand p { margin: 6px 0 0; color: var(--muted); }
+  .stats { display: flex; flex-wrap: wrap; gap: 8px 22px; font-family: var(--font-num); font-size: 0.85rem; color: var(--muted); }
+  .stats b { color: var(--text); font-weight: 500; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  button, select, input, dialog { font: inherit; color: inherit; }
+  .btn {
+    cursor: pointer;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 9px 14px;
+    font-weight: 500;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn[disabled] { opacity: 0.55; cursor: progress; }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+  .banner {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--accent);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between;
+  }
+  .banner.warn { border-left-color: var(--warn); }
+  .banner.bad { border-left-color: var(--bad); }
+  .bar { height: 4px; background: var(--panel-2); border-radius: 4px; overflow: hidden; flex-basis: 100%; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.3s ease; }
+
+  .controls { display: grid; gap: 12px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .seg button {
+    cursor: pointer; background: transparent; border: 0; padding: 8px 14px; color: var(--muted); font-weight: 500;
+    border-right: 1px solid var(--line);
+  }
+  .seg button:last-child { border-right: 0; }
+  .seg button[aria-pressed="true"] { background: var(--panel-2); color: var(--text); }
+  .chip {
+    cursor: pointer; background: transparent; border: 1px solid var(--line); border-radius: 999px;
+    padding: 5px 12px; color: var(--muted); display: inline-flex; gap: 7px; align-items: center;
+  }
+  .chip[aria-pressed="true"] { border-color: var(--accent); color: var(--text); background: var(--panel); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  .search, select {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; min-width: 0;
+  }
+  .search { flex: 1 1 220px; }
+  select { max-width: 100%; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 12px; }
+  .repo {
+    position: relative; cursor: pointer; background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px 52px 14px 14px; display: grid; gap: 8px; align-content: start; min-width: 0;
+  }
+  .repo:hover { border-color: var(--accent); }
+  .repo h3 { margin: 0; font-size: 1rem; font-weight: 600; overflow-wrap: anywhere; }
+  .repo h3 small { color: var(--muted); font-weight: 400; }
+  .repo p {
+    margin: 0; color: var(--muted); font-size: 0.9rem;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px 12px; font-family: var(--font-num); font-size: 0.78rem; color: var(--muted); align-items: center; }
+  .tag { display: inline-flex; gap: 6px; align-items: center; }
+  .starbtn {
+    position: absolute; top: 8px; right: 8px; width: 38px; height: 38px; display: grid; place-items: center;
+    background: transparent; border: 0; border-radius: 10px; color: var(--muted); cursor: pointer;
+  }
+  .starbtn:hover { background: var(--panel-2); color: var(--star); }
+  .starbtn[aria-pressed="true"] { color: var(--star); }
+  .more { justify-self: center; }
+  .empty { text-align: center; color: var(--muted); padding: 40px 12px; border: 1px dashed var(--line); border-radius: 14px; }
+
+  .detail { position: fixed; inset: 0; z-index: 20; display: flex; justify-content: flex-end; }
+  .scrim { position: absolute; inset: 0; background: rgba(5, 6, 12, 0.66); }
+  .sheet {
+    position: relative; width: min(640px, 100%); height: 100%; overflow-y: auto; background: var(--bg);
+    border-left: 1px solid var(--line); padding: 0 max(16px, env(safe-area-inset-right, 0px)) 48px 16px;
+    display: grid; gap: 12px; align-content: start;
+  }
+  .sheet-head {
+    position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 16px 0 12px; border-bottom: 1px solid var(--line);
+    display: grid; gap: 10px;
+  }
+  .sheet-title { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; }
+  .sheet-title h2 { margin: 0; font-family: var(--font-display); font-size: 1.4rem; line-height: 1.2; overflow-wrap: anywhere; }
+  .sheet-title .row { flex-wrap: nowrap; flex-shrink: 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; display: grid; gap: 8px; min-width: 0; }
+  .card h3 { margin: 0; font-size: 0.74rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+  .card p, .card ul { margin: 0; }
+  .card ul { padding-left: 18px; display: grid; gap: 8px; }
+  .card li b { font-weight: 600; }
+  .card a { color: var(--accent); overflow-wrap: anywhere; }
+  .note { color: var(--muted); font-size: 0.85rem; }
+  .lic { border-radius: 10px; padding: 10px 12px; background: var(--panel-2); border-left: 4px solid var(--muted); }
+  .lic.good { border-left-color: var(--good); }
+  .lic.warn { border-left-color: var(--warn); }
+  .lic.bad { border-left-color: var(--bad); }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 0.8rem; }
+  td.price { font-family: var(--font-num); white-space: nowrap; }
+
+  dialog { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px; width: min(480px, calc(100% - 32px)); }
+  dialog::backdrop { background: rgba(5, 6, 12, 0.7); }
+  dialog h2 { margin: 0 0 12px; font-family: var(--font-display); }
+  dialog label { display: grid; gap: 4px; margin-bottom: 12px; }
+  dialog input[type="password"], dialog input[type="number"], dialog input[type="text"] {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; width: 100%;
+  }
+  .dlg-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .sep { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
+
+  @media (prefers-reduced-motion: reduce) { .bar i { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>Go<span>Git</span>It</h1>
+      <p>Fresh open-source GitHub projects, each with a plan to turn it into a small business.</p>
+    </div>
+    <div class="stats" id="stats" aria-live="polite"></div>
+    <div class="actions">
+      <button class="btn primary" id="btnRefresh" type="button">Get today's batch</button>
+      <button class="btn" id="btnSettings" type="button">Settings</button>
+    </div>
+  </header>
+
+  <div id="banner" class="banner" hidden role="status"></div>
+
+  <section class="controls" aria-label="Filters">
+    <div class="row">
+      <div class="seg" id="tabs">
+        <button type="button" data-tab="today" aria-pressed="true">Today</button>
+        <button type="button" data-tab="all" aria-pressed="false">All saved</button>
+        <button type="button" data-tab="wish" aria-pressed="false">&#9733; Wishlist</button>
+      </div>
+      <input class="search" id="q" type="search" placeholder="Search name, description, topic, language" aria-label="Search saved repos">
+    </div>
+    <div class="row" id="cats"></div>
+    <div class="row">
+      <select id="lang" aria-label="Language"><option value="">Any language</option></select>
+      <select id="day" aria-label="Day added" hidden><option value="">Any day</option></select>
+      <select id="sort" aria-label="Sort">
+        <option value="stars">Most stars</option>
+        <option value="new">Newest added</option>
+        <option value="pushed">Recently updated</option>
+        <option value="name">Name A to Z</option>
+      </select>
+      <span class="note" id="count"></span>
+    </div>
+  </section>
+
+  <main>
+    <div class="grid" id="list"></div>
+    <div class="row" style="justify-content:center;margin-top:14px"><button class="btn more" id="more" type="button" hidden>Show more</button></div>
+  </main>
+</div>
+
+<div class="detail" id="detail" hidden>
+  <div class="scrim" id="scrim"></div>
+  <aside class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle"></aside>
+</div>
+
+<dialog id="settings">
+  <h2>Settings</h2>
+  <label>Minimum stars
+    <input id="minStars" type="number" min="0" step="50" value="300">
+    <span class="note">Only repos with at least this many stars are fetched. Lower it to widen the pool. Only repos with an open-source license are ever kept.</span>
+  </label>
+  <label>GitHub token (optional)
+    <input id="token" type="password" autocomplete="off" placeholder="Leave empty to skip">
+    <span class="note">Without a token GitHub allows about 10 searches a minute, which is enough. A token with no permissions ticked makes fetching faster. It is kept only in this browser.</span>
+  </label>
+  <div class="dlg-actions">
+    <button class="btn primary" id="saveSettings" type="button">Save</button>
+    <button class="btn" id="closeSettings" type="button">Cancel</button>
+  </div>
+  <hr class="sep">
+  <p class="note" style="margin-top:0">Your repos and wishlist are saved in this browser. Clearing site data erases them, so export a backup now and then.</p>
+  <div class="dlg-actions">
+    <button class="btn" id="btnExport" type="button">Export backup</button>
+    <button class="btn" id="btnImport" type="button">Import backup</button>
+    <input id="importFile" type="file" accept="application/json,.json" hidden>
+  </div>
+</dialog>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- Config ---------- */
+  var BATCH = 100;
+  var CATS = {
+    games:     { label: "Games",          dot: "#ff9db1", topics: ["game", "games", "emulator"] },
+    utilities: { label: "Utilities",      dot: "#7fd6ff", topics: ["utility", "utilities", "tools"] },
+    everyday:  { label: "Everyday tools", dot: "#a6e3a1", topics: ["productivity", "note-taking", "todo", "personal-finance", "budgeting", "password-manager", "home-automation", "self-hosted"] },
+    tech:      { label: "Tech",           dot: "#c3a6ff", topics: ["developer-tools", "automation", "browser-extension", "cli"] }
+  };
+  var CAT_KEYS = Object.keys(CATS);
+
+  /* ---------- Small helpers ---------- */
+  function $(s, r) { return (r || document).querySelector(s); }
+  function el(tag, attrs) {
+    var n = document.createElement(tag);
+    if (attrs) Object.keys(attrs).forEach(function (k) {
+      var v = attrs[k];
+      if (v == null || v === false) return;
+      if (k === "class") n.className = v;
+      else if (k === "text") n.textContent = v;
+      else if (k.slice(0, 2) === "on") n.addEventListener(k.slice(2), v);
+      else n.setAttribute(k, v === true ? "" : v);
+    });
+    for (var i = 2; i < arguments.length; i++) {
+      var kids = [].concat(arguments[i]);
+      for (var j = 0; j < kids.length; j++) {
+        var kid = kids[j];
+        if (kid == null || kid === false) continue;
+        n.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+      }
+    }
+    return n;
+  }
+  function pad(n) { return n < 10 ? "0" + n : "" + n; }
+  function ymd(d) { return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+  function today() { return ymd(new Date()); }
+  function dayLabel(s) {
+    var p = s.split("-");
+    return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  }
+  function fmtStars(n) {
+    if (n >= 10000) return Math.round(n / 1000) + "k";
+    if (n >= 1000) return (n / 1000).toFixed(1).replace(".0", "") + "k";
+    return String(n);
+  }
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function starSvg(on) {
+    var wrap = document.createElement("span");
+    wrap.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3 6.1 20.6l1.3-6.6L2.5 9.4l6.6-.8z" fill="' + (on ? "currentColor" : "none") + '" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>';
+    return wrap.firstChild;
+  }
+
+  /* ---------- Settings (browser only) ---------- */
+  var settings = { token: "", minStars: 300 };
+  function loadSettings() {
+    try {
+      var s = JSON.parse(localStorage.getItem("gogitit.settings") || "{}");
+      if (typeof s.token === "string") settings.token = s.token;
+      if (typeof s.minStars === "number" && s.minStars >= 0) settings.minStars = s.minStars;
+    } catch (e) {}
+  }
+  function storeSettings() {
+    try { localStorage.setItem("gogitit.settings", JSON.stringify(settings)); } catch (e) {}
+  }
+
+  /* ---------- Storage: IndexedDB with an in-memory fallback ---------- */
+  var db = null;
+  var mem = { repos: new Map(), meta: new Map() };
+  function openDB() {
+    return new Promise(function (resolve, reject) {
+      if (!window.indexedDB) { reject(new Error("no indexedDB")); return; }
+      var r = indexedDB.open("gogitit", 1);
+      r.onupgradeneeded = function () {
+        r.result.createObjectStore("repos", { keyPath: "id" });
+        r.result.createObjectStore("meta", { keyPath: "key" });
+      };
+      r.onsuccess = function () { resolve(r.result); };
+      r.onerror = function () { reject(r.error); };
+    });
+  }
+  function tx(store, mode, fn) {
+    return new Promise(function (resolve, reject) {
+      var t = db.transaction(store, mode), out;
+      try { out = fn(t.objectStore(store)); } catch (e) { reject(e); return; }
+      t.oncomplete = function () { resolve(out && "result" in out ? out.result : undefined); };
+      t.onerror = t.onabort = function () { reject(t.error); };
+    });
+  }
+  function dbAllRepos() {
+    return db ? tx("repos", "readonly", function (s) { return s.getAll(); }) : Promise.resolve(Array.from(mem.repos.values()));
+  }
+  function dbPutRepos(list) {
+    if (!db) { list.forEach(function (r) { mem.repos.set(r.id, r); }); return Promise.resolve(); }
+    return tx("repos", "readwrite", function (s) { list.forEach(function (r) { s.put(r); }); });
+  }
+  function dbDeleteRepos(ids) {
+    if (!db) { ids.forEach(function (id) { mem.repos.delete(id); }); return Promise.resolve(); }
+    return tx("repos", "readwrite", function (s) { ids.forEach(function (id) { s.delete(id); }); });
+  }
+  function dbGetMeta(key) {
+    if (!db) return Promise.resolve(mem.meta.get(key));
+    return tx("meta", "readonly", function (s) { return s.get(key); }).then(function (rec) { return rec ? rec.value : undefined; });
+  }
+  function dbSetMeta(key, value) {
+    if (!db) { mem.meta.set(key, value); return Promise.resolve(); }
+    return tx("meta", "readwrite", function (s) { s.put({ key: key, value: value }); });
+  }
+
+  /* ---------- State ---------- */
+  var state = {
+    repos: new Map(), pool: [], cursors: {}, lastRefresh: null,
+    tab: "today", cat: "all", lang: "", day: "", sort: "stars", q: "", limit: 60,
+    running: false, openId: null, lastFocus: null
+  };
+  function saveMeta() {
+    return Promise.all([
+      dbSetMeta("pool", state.pool),
+      dbSetMeta("cursors", state.cursors),
+      dbSetMeta("lastRefresh", state.lastRefresh)
+    ]);
+  }
+
+  /* ---------- Fetching from GitHub ---------- */
+  var BAD_NAME = /(^|[-_/])awesome|tutorial|interview|cheat-?sheet|roadmap|dotfiles|leetcode|^.*\/(learn|learning|course|courses|books?)$/i;
+  var BAD_DESC = /curated list|awesome list|a list of|list of |cheat ?sheet|tutorial|learning resources|free programming books/i;
+  var OPEN_LICENSE = /^(MIT(-0)?|Apache-2\.0|BSD-[23]-Clause(-Clear)?|ISC|0BSD|Unlicense|CC0-1\.0|Zlib|(A|L)?GPL-[123]\.[01](-only|-or-later)?|MPL-2\.0|EPL-[12]\.0|EUPL-1\.[12]|BSL-1\.0|Artistic-2\.0|OFL-1\.1|PostgreSQL|AFL-3\.0|OSL-3\.0|MS-PL|MS-RL|ECL-2\.0|NCSA)$/i;
+  function isOpenSource(spdx) { return OPEN_LICENSE.test(spdx || ""); }
+  function isUseful(it) {
+    if (!it || !it.id || it.fork || it.archived || it.disabled) return false;
+    if (!isOpenSource(it.license && it.license.spdx_id)) return false;
+    if (!it.description || it.description.length < 8) return false;
+    if (BAD_NAME.test(it.full_name || "")) return false;
+    if (BAD_DESC.test(it.description)) return false;
+    var topics = it.topics || [];
+    if (topics.indexOf("awesome") !== -1 || topics.indexOf("awesome-list") !== -1) return false;
+    return true;
+  }
+  function norm(it, cat) {
+    return {
+      id: it.id, full_name: it.full_name, html_url: it.html_url,
+      description: it.description || "", stars: it.stargazers_count || 0,
+      language: it.language || "", license: (it.license && it.license.spdx_id) || "",
+      topics: it.topics || [], pushed_at: it.pushed_at || "", homepage: it.homepage || "",
+      category: cat, addedOn: null, starred: false
+    };
+  }
+  function cutoffDate() {
+    var d = new Date(); d.setFullYear(d.getFullYear() - 1); return ymd(d);
+  }
+  function queryFor(topic) {
+    return "topic:" + topic + " stars:>=" + settings.minStars + " fork:false archived:false pushed:>" + cutoffDate();
+  }
+  function paceMs() {
+    if (typeof window.GOGITIT_PACE_MS === "number") return window.GOGITIT_PACE_MS;
+    return settings.token ? 2200 : 6500;
+  }
+  async function searchPage(q, page) {
+    var url = "https://api.github.com/search/repositories?q=" + encodeURIComponent(q) + "&sort=stars&order=desc&per_page=100&page=" + page;
+    var headers = { "Accept": "application/vnd.github+json" };
+    if (settings.token) headers.Authorization = "Bearer " + settings.token;
+    var res;
+    try { res = await fetch(url, { headers: headers }); }
+    catch (e) { throw new Error("Couldn't reach GitHub. Check your internet connection and try again."); }
+    if (res.status === 403 || res.status === 429) {
+      var err = new Error("GitHub's search limit was reached.");
+      err.rateLimit = true;
+      var reset = res.headers.get("x-ratelimit-reset"), retry = res.headers.get("retry-after");
+      if (reset) err.resetAt = new Date(+reset * 1000);
+      else if (retry) err.resetAt = new Date(Date.now() + (+retry) * 1000);
+      throw err;
+    }
+    if (res.status === 401) throw new Error("GitHub rejected your token. Check it in Settings.");
+    if (res.status === 422) return { items: [], done: true };
+    if (!res.ok) throw new Error("GitHub returned an error (" + res.status + "). Try again in a minute.");
+    var data = await res.json();
+    var items = data.items || [];
+    return { items: items, done: items.length < 100 || page >= 10 };
+  }
+  function poolCount(cat) {
+    return state.pool.filter(function (p) { return p.category === cat; }).length;
+  }
+  function nextTopic(cat) {
+    var best = null, bestPage = 1e9;
+    CATS[cat].topics.forEach(function (t) {
+      var c = state.cursors[queryFor(t)] || { page: 1, done: false };
+      if (!c.done && c.page < bestPage) { best = t; bestPage = c.page; }
+    });
+    return best;
+  }
+  async function fillPool(need, onProgress) {
+    var perCat = Math.ceil(need / CAT_KEYS.length);
+    var calls = 0, progressed = true;
+    while (progressed) {
+      progressed = false;
+      for (var i = 0; i < CAT_KEYS.length; i++) {
+        var cat = CAT_KEYS[i];
+        if (poolCount(cat) >= perCat) continue;
+        var topic = nextTopic(cat);
+        if (!topic) continue;
+        progressed = true;
+        if (calls > 0) await sleep(paceMs());
+        calls++;
+        onProgress(cat, calls);
+        var q = queryFor(topic);
+        var cur = state.cursors[q] || { page: 1, done: false };
+        var result = await searchPage(q, cur.page);
+        var known = new Set(state.pool.map(function (p) { return p.id; }));
+        result.items.forEach(function (it) {
+          if (!isUseful(it) || state.repos.has(it.id) || known.has(it.id)) return;
+          known.add(it.id);
+          state.pool.push(norm(it, cat));
+        });
+        state.cursors[q] = { page: cur.page + 1, done: result.done };
+        await saveMeta();
+      }
+    }
+  }
+  function pickBatch(n, capPerCat) {
+    var groups = {}, taken = {};
+    CAT_KEYS.forEach(function (c) {
+      groups[c] = state.pool.filter(function (p) { return p.category === c; })
+        .sort(function (a, b) { return b.stars - a.stars; });
+    });
+    var picks = [], any = true;
+    while (picks.length < n && any) {
+      any = false;
+      for (var i = 0; i < CAT_KEYS.length && picks.length < n; i++) {
+        var key = CAT_KEYS[i], g = groups[key];
+        if (capPerCat && (taken[key] || 0) >= capPerCat) continue;
+        if (g.length) { picks.push(g.shift()); taken[key] = (taken[key] || 0) + 1; any = true; }
+      }
+    }
+    var ids = new Set(picks.map(function (p) { return p.id; }));
+    state.pool = state.pool.filter(function (p) { return !ids.has(p.id); });
+    return picks;
+  }
+
+  /* ---------- Refresh ---------- */
+  function todaysCount() {
+    var t = today(), n = 0;
+    state.repos.forEach(function (r) { if (r.addedOn === t) n++; });
+    return n;
+  }
+  function showBanner(kind, children) {
+    var b = $("#banner");
+    b.className = "banner" + (kind ? " " + kind : "");
+    b.replaceChildren.apply(b, [].concat(children));
+    b.hidden = false;
+  }
+  function hideBanner() { $("#banner").hidden = true; }
+  async function refresh() {
+    if (state.running) return;
+    var need = BATCH - todaysCount();
+    if (need <= 0) {
+      showBanner("", el("span", { text: "You already have today's 100. Come back tomorrow for a fresh batch." }));
+      return;
+    }
+    state.running = true;
+    $("#btnRefresh").disabled = true;
+    var bar = el("div", { class: "bar" }, el("i"));
+    var msg = el("span", { text: "Fetching today's repos from GitHub..." });
+    showBanner("", [msg, bar]);
+    var failure = null;
+    try {
+      await fillPool(need, function (cat, n) {
+        msg.textContent = "Fetching " + CATS[cat].label.toLowerCase() + " from GitHub... (" + n + ")";
+        bar.firstChild.style.width = Math.min(95, n * 12) + "%";
+      });
+    } catch (e) { failure = e; }
+    var picks = pickBatch(need, failure ? Math.ceil(need / CAT_KEYS.length) : 0);
+    var day = today();
+    picks.forEach(function (p) { p.addedOn = day; state.repos.set(p.id, p); });
+    try {
+      await dbPutRepos(picks);
+      if (picks.length) state.lastRefresh = day;
+      await saveMeta();
+    } catch (e) { failure = failure || new Error("Couldn't save to this browser's storage."); }
+    state.running = false;
+    $("#btnRefresh").disabled = false;
+    if (failure && failure.rateLimit) {
+      var when = failure.resetAt ? failure.resetAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "in about a minute";
+      showBanner("warn", [
+        el("span", { text: (picks.length ? "Saved " + picks.length + " new repos, then " : "") + "GitHub's search limit was reached. Try again " + (failure.resetAt ? "after " : "") + when + "." }),
+        el("button", { class: "btn", type: "button", text: "Try again", onclick: refresh })
+      ]);
+    } else if (failure) {
+      showBanner("bad", [
+        el("span", { text: failure.message }),
+        el("button", { class: "btn", type: "button", text: "Try again", onclick: refresh })
+      ]);
+    } else if (!picks.length) {
+      showBanner("warn", el("span", { text: "No new repos match right now. You've seen everything in the pool. Lower the minimum stars in Settings to widen it." }));
+    } else if (picks.length < need) {
+      showBanner("warn", [
+        el("span", { text: "Added " + picks.length + " new repos. That's all GitHub had left that matches." }),
+      ]);
+    } else {
+      hideBanner();
+    }
+    state.tab = state.tab === "wish" ? "wish" : "today";
+    state.limit = 60;
+    syncTabs();
+    render();
+  }
+
+  /* ---------- Business profiles ---------- */
+  var PROFILES = {
+    game: {
+      noun: "game",
+      who: "Casual players who want something simple to play with friends or family: kids and parents, classrooms, office teams, and fans of retro or niche genres. Skip the hardcore crowd, since they already live on Steam.",
+      ideas: [
+        ["Ship it as a polished app or web game", "Package it for the app stores or a website with your own art, sounds and a clean start screen. Make it free with a small unlock or a few ads."],
+        ["Sell a themed version", "Re-skin it for a niche, such as a school mascot, a team-building day or a classroom subject, and sell it as a custom game."],
+        ["Run private rooms", "If it supports multiplayer, host private rooms for groups and charge a small monthly fee for always-on rooms."]
+      ],
+      gets: ["A game that works the moment they open it, with no setup", "Fun for a group, a class or a team event", "New levels or themes over time", "Their score and progress saved"],
+      prices: [
+        ["One-time purchase", "$2-$8", "Works best for simple single-player games"],
+        ["Subscription", "$2-$5 / month", "Only if you keep adding content or run online rooms"],
+        ["Themed custom version", "$150-$800 / project", "Sold to schools, clubs and small companies"]
+      ],
+      leads: [
+        ["Genre subreddits like r/WebGames and r/AndroidGaming", "Post a short clip with a link. Read each community's self-promotion rules first."],
+        ["itch.io and Game Jolt", "Publish a free demo and collect emails from people who play it."],
+        ["TikTok and YouTube Shorts", "A ten-second gameplay clip shows the whole game."],
+        ["Teacher and parent groups on Facebook", "For themed or educational versions, ask what they would use it for before you build."]
+      ]
+    },
+    utility: {
+      noun: "utility",
+      who: "Anyone who keeps running into the same small annoyance on a computer or phone: converting files, renaming photos, cleaning up storage, checking system health.",
+      ideas: [
+        ["Wrap it in a simple app", "Turn a command-line tool into a window with big buttons and drag-and-drop. People pay to avoid typing commands."],
+        ["Sell it as a hosted web tool", "Run it on a server so people upload a file in their browser and get the result back. No install."],
+        ["Sell setup and support", "Install and configure it for small offices, then charge monthly to keep it updated."]
+      ],
+      gets: ["One job done fast, with no learning curve", "No commands or settings to figure out", "Files that stay private if it runs on their own computer", "A real person to ask when something breaks"],
+      prices: [
+        ["One-time license", "$9-$39", "Fits desktop apps people use now and then"],
+        ["Monthly plan", "$3-$9 / month", "Fits hosted tools where you pay for servers"],
+        ["Setup service", "$75-$300 / client", "One-off install plus an optional support plan"]
+      ],
+      leads: [
+        ["Subreddits for the problem it solves", "Try r/software, r/windows, r/mac, or r/DataHoarder for storage tools. Answer questions first, then mention your tool where it fits."],
+        ["Search for the exact complaint", "Google what people type, like 'bulk rename files'. Pages that rank for it are where your buyers already are, and many accept sponsored mentions."],
+        ["Product Hunt and AlternativeTo", "List it as an alternative to the paid tool it replaces."],
+        ["Local small businesses", "Offices, clinics and shops often have a computer chore nobody likes. Ask what takes the longest."]
+      ]
+    },
+    productivity: {
+      noun: "productivity app",
+      who: "Busy individuals, students, freelancers and small teams who want notes, tasks or plans organized without paying for a big suite.",
+      ideas: [
+        ["Sell a hosted version", "Run it for people who don't want to install anything. They sign up, log in, and it works on their phone."],
+        ["Sell templates and starter setups", "Pre-fill it for one use, like a wedding planner, a student semester planner or a freelancer client tracker."],
+        ["Offer a done-for-you setup", "Configure it for a small team, import their old notes and train them in a one-hour call."]
+      ],
+      gets: ["Their notes or tasks in one place on every device", "Backups so nothing gets lost", "A setup that matches how they actually work", "Updates and support"],
+      prices: [
+        ["Subscription", "$4-$12 / user / month", "In line with hosted note and task apps"],
+        ["Template packs", "$12-$49", "Sold on Gumroad or Etsy"],
+        ["Setup and training", "$100-$400 / team", "One-off project"]
+      ],
+      leads: [
+        ["r/Notion, r/ObsidianMD, r/productivity, r/selfhosted", "Help people with their setups and share a template when it fits."],
+        ["YouTube creators who review productivity tools", "Offer a free account in exchange for an honest review."],
+        ["Student and freelancer groups on Facebook and Discord", "Ask what they track today and what annoys them."],
+        ["Template marketplaces like Gumroad and Etsy", "See what sells in your niche before you build."]
+      ]
+    },
+    finance: {
+      noun: "money tool",
+      who: "People who want to track spending, split bills or plan a budget without handing a bank login to a big company: households, couples, roommates and side-hustlers.",
+      ideas: [
+        ["Sell a private hosted budget app", "Run it for people who want it to just work and keep their data away from ad companies."],
+        ["Sell guides and templates for one niche", "Freelancer taxes, wedding budgets, student budgets, shared house expenses."],
+        ["Offer setup for small-business bookkeeping", "Configure it, import their transactions and show them the monthly routine."]
+      ],
+      gets: ["A clear picture of where their money goes", "Privacy by design, with no bank password sharing if you build it that way", "Monthly summaries", "Simple help getting started"],
+      prices: [
+        ["Subscription", "$4-$10 / month", "Typical for budgeting apps"],
+        ["One-time purchase", "$20-$60", "For a simple desktop or mobile version"],
+        ["Small-business setup", "$150-$500", "One-off project"]
+      ],
+      leads: [
+        ["r/personalfinance, r/budgeting, r/YNAB", "Answer budgeting questions. Mention your tool only when it fits."],
+        ["Money bloggers and newsletters", "Offer a free account and a short walkthrough."],
+        ["Freelancer and gig-worker communities", "They track irregular income and feel it."],
+        ["Credit unions and community groups that run money classes", "Offer to demo it in a workshop."]
+      ],
+      caution: "You would be handling money data. Check privacy rules where your customers live before you store anyone's financial information."
+    },
+    privacy: {
+      noun: "privacy or security tool",
+      who: "Everyday people who worry about their passwords, accounts or data: families, older adults and small-business owners. Not security experts.",
+      ideas: [
+        ["Offer a family or small-office plan", "Run it for them with backups and updates handled."],
+        ["Sell a setup and migration service", "Move people off passwords saved in the browser and show them how to use the new tool."],
+        ["Sell a plain-language guide with support", "Many people want help more than software."]
+      ],
+      gets: ["Accounts protected without being an expert", "One place for logins, shared with family if they want", "Someone to help if they get locked out", "Regular backups"],
+      prices: [
+        ["Hosted plan", "$3-$8 / user / month", "Per person or per family"],
+        ["Setup service", "$75-$250 / household or office", "One visit or video call"],
+        ["Support plan", "$10-$30 / month", "Optional add-on"]
+      ],
+      leads: [
+        ["r/privacy, r/Bitwarden, r/selfhosted", "Help people who ask 'which should I use?' and be honest about trade-offs."],
+        ["Libraries, community centers and senior centers", "Offer a free talk on staying safe online."],
+        ["Small-business owner groups and chambers of commerce", "Dentists, accountants and law offices need this and rarely have IT."],
+        ["Local Facebook and Nextdoor groups", "Neighbors ask for a trusted person to help with this."]
+      ],
+      caution: "People would trust you with their secrets. You need strong security habits, backups and clear terms before you take on customers."
+    },
+    browser: {
+      noun: "browser extension",
+      who: "Anyone who spends the day in a browser and wants one task done faster: shoppers, students, remote workers and job seekers.",
+      ideas: [
+        ["Publish a polished version", "Release it in the Chrome Web Store and Firefox Add-ons with a free tier and a paid pro tier."],
+        ["Sell a niche version", "Tune it for recruiters, real estate agents or online sellers and price it for them."],
+        ["Build custom extensions for businesses", "Offer to make one for a company's own workflow."]
+      ],
+      gets: ["A button in their browser that saves a repeated task", "It works on sites they already use", "Pro features like sync or unlimited use", "Updates when websites change"],
+      prices: [
+        ["Freemium subscription", "$3-$9 / month", "Free tier brings users, pro tier pays"],
+        ["Lifetime unlock", "$20-$50", "Simple and popular for small tools"],
+        ["Custom business build", "$500-$3,000", "One-off project"]
+      ],
+      leads: [
+        ["Chrome Web Store and Firefox Add-ons search", "Name the extension after the problem it solves so searchers find it."],
+        ["Subreddits where the target user hangs out", "Show a short clip of the task going from slow to fast."],
+        ["YouTube tutorials about the workflow it speeds up", "Comment helpfully and offer a free pro account to the creator."],
+        ["LinkedIn groups for the niche job", "Recruiters, agents and sellers are easy to reach there."]
+      ]
+    },
+    automation: {
+      noun: "automation tool",
+      who: "Small-business owners, freelancers and busy professionals who repeat the same digital chore every week: posting, copying data between tools, sending reminders.",
+      ideas: [
+        ["Sell the result, not the tool", "Offer to do the task for them every week and send a short report."],
+        ["Offer a hosted version with a simple form", "They fill in a few fields and it runs without any setup."],
+        ["Package it for one niche", "For example, review requests for dentists or booking reminders for salons."]
+      ],
+      gets: ["A chore they never have to do again", "A confirmation or report each time it runs", "No technical setup", "A fix when a website or app changes"],
+      prices: [
+        ["Monthly service", "$29-$149 / month / client", "Priced on the time you save them"],
+        ["Setup fee", "$100-$500", "One-time"],
+        ["Per-run pricing", "$0.05-$1 / run", "Fits hosted tools with steady use"]
+      ],
+      leads: [
+        ["Upwork and Fiverr", "Search for jobs that say 'automate' and offer your packaged service."],
+        ["Small-business groups on Facebook and local chambers", "Ask what weekly task they dislike most."],
+        ["r/Entrepreneur, r/smallbusiness, r/automation", "Share how a specific chore got automated, with a short demo."],
+        ["Businesses with an obvious manual process", "Booking forms, spreadsheets and paper logs. If you email them cold, follow the anti-spam rules where they live."]
+      ]
+    },
+    devtools: {
+      noun: "developer tool",
+      who: "Developers, freelancers and small tech teams. They pay when it saves time and they can try it free first.",
+      ideas: [
+        ["Sell a hosted version with a dashboard", "People pay to skip running it themselves."],
+        ["Sell paid support", "Companies that depend on it will pay for priority fixes and a response time."],
+        ["Add the missing business features", "Team accounts, single sign-on and audit logs make a paid edition."]
+      ],
+      gets: ["Time back on a task they do daily", "A hosted version they don't maintain", "Team features and support with a response time", "Docs and examples that work"],
+      prices: [
+        ["Per-user subscription", "$9-$29 / user / month", "Standard for developer tools"],
+        ["Support contract", "$100-$1,000 / month / company", "Priced by how critical the tool is"],
+        ["Setup and consulting", "$500-$2,500", "One-off project"]
+      ],
+      leads: [
+        ["The repo's own GitHub issues", "People asking for features your hosted version could provide."],
+        ["Hacker News 'Show HN' and r/programming", "Post once the hosted version actually works."],
+        ["Dev.to and developer communities on X", "Write one real how-to using the tool."],
+        ["LinkedIn: engineering managers at small companies", "They have the budget and the problem."]
+      ]
+    },
+    selfhosted: {
+      noun: "self-hosted app",
+      who: "People who want the app but don't want to run a server: families, clubs, small businesses and hobbyists who would rather pay than maintain it.",
+      ideas: [
+        ["Offer managed hosting", "You run it, they log in. You handle backups and updates."],
+        ["Sell a setup service", "Install it on their own server or home device and hand over the keys."],
+        ["Run a private instance for a group", "Churches, clubs, schools and small teams each get their own."]
+      ],
+      gets: ["The app working without touching a server", "Automatic updates and backups", "Their data kept separate from other customers", "Someone to call when it breaks"],
+      prices: [
+        ["Managed hosting", "$5-$20 / month / instance", "Covers your server cost plus your time"],
+        ["One-time setup", "$100-$400", "Install and configure"],
+        ["Support plan", "$15-$50 / month", "Optional add-on"]
+      ],
+      leads: [
+        ["r/selfhosted and the app's own forum or Discord", "Look for people asking 'how do I set this up?'"],
+        ["Local clubs, churches and small businesses", "Ask what shared tool they wish they had."],
+        ["YouTube tutorials for the app", "Comment helpfully, then link to your hosted option once it exists."],
+        ["The app's GitHub discussions", "People stuck on installation are ready customers."]
+      ]
+    },
+    home: {
+      noun: "smart-home tool",
+      who: "Homeowners and renters with smart devices who want them to work together, plus landlords and small property managers.",
+      ideas: [
+        ["Offer install and configuration for homes", "Visit, set it up, show the family how to use it."],
+        ["Sell a plug-and-play box", "Pre-install it on small hardware and ship it ready to plug in."],
+        ["Sell monitoring and updates monthly", "Keep it working when devices or updates break things."]
+      ],
+      gets: ["Lights, locks and sensors working together", "Setup done in one visit", "Simple dashboards for the family", "Help when a device stops responding"],
+      prices: [
+        ["Home setup", "$150-$600 / home", "One visit plus a follow-up call"],
+        ["Pre-installed box", "$120-$300 plus hardware", "Margin comes from your setup work"],
+        ["Monitoring plan", "$10-$30 / month", "Optional add-on"]
+      ],
+      leads: [
+        ["r/homeassistant and smart-home forums", "People ask for local help every day."],
+        ["Local Facebook and Nextdoor groups", "Neighbors want someone trustworthy nearby."],
+        ["Real estate agents and property managers", "They can recommend you to new owners and tenants."],
+        ["Electricians and installers", "Partner with them to cover the software side."]
+      ]
+    }
+  };
+  function profileFor(r) {
+    var t = new Set((r.topics || []).map(function (x) { return x.toLowerCase(); }));
+    function has() { for (var i = 0; i < arguments.length; i++) if (t.has(arguments[i])) return true; return false; }
+    if (has("game-engine", "gamedev-tools")) return "devtools";
+    if (r.category === "games" || has("game", "games", "game-development", "gamedev", "emulator")) return "game";
+    if (has("home-automation", "smart-home", "home-assistant")) return "home";
+    if (has("self-hosted", "selfhosted", "homelab")) return "selfhosted";
+    if (has("personal-finance", "budgeting", "finance", "accounting")) return "finance";
+    if (has("password-manager", "privacy", "security", "vpn")) return "privacy";
+    if (has("note-taking", "notes", "todo", "productivity", "task-manager", "knowledge-base")) return "productivity";
+    if (has("browser-extension", "chrome-extension", "firefox-addon")) return "browser";
+    if (has("automation", "workflow", "bot", "scraper")) return "automation";
+    if (has("developer-tools", "devtools", "cli", "api")) return "devtools";
+    if (r.category === "utilities") return "utility";
+    if (r.category === "everyday") return "productivity";
+    return "devtools";
+  }
+  function licenseInfo(spdx) {
+    var s = (spdx || "").toUpperCase();
+    if (/^(MIT|APACHE-2\.0|BSD-2-CLAUSE|BSD-3-CLAUSE|ISC|UNLICENSE|0BSD|CC0-1\.0|ZLIB)$/.test(s))
+      return ["good", "Permissive license (" + spdx + ")", "You can sell products built on it. Keep the original copyright notice and license text with it."];
+    if (/^AGPL/.test(s))
+      return ["bad", "Strong copyleft license (" + spdx + ")", "If you run a modified version as an online service, you must give your users the source code. That limits closed hosted businesses. Read it carefully or ask a lawyer."];
+    if (/^(GPL|LGPL)/.test(s))
+      return ["warn", "Copyleft license (" + spdx + ")", "You can sell it, but if you hand out a modified version you must share your source under the same license. Hosting it for others is usually allowed under GPL."];
+    if (/^MPL/.test(s))
+      return ["warn", "File-level copyleft (" + spdx + ")", "Changes to the project's own files must stay open. You can combine it with your own closed code."];
+    if (!s || s === "NOASSERTION" || s === "OTHER")
+      return ["bad", "No clear license", "Without a clear license you don't have permission to sell it. Read the repo's license file or ask the author before you build on it."];
+    return ["warn", "License: " + spdx, "Read the license file before you sell anything built on this."];
+  }
+
+  /* ---------- Filtering and list ---------- */
+  function allRepos() { return Array.from(state.repos.values()); }
+  function latestDay() {
+    var d = "";
+    state.repos.forEach(function (r) { if (r.addedOn && r.addedOn > d) d = r.addedOn; });
+    return d;
+  }
+  function visible() {
+    var q = state.q.trim().toLowerCase();
+    var t = today();
+    var list = allRepos().filter(function (r) {
+      if (state.tab === "today" && r.addedOn !== t) return false;
+      if (state.tab === "wish" && !r.starred) return false;
+      if (state.cat !== "all" && r.category !== state.cat) return false;
+      if (state.lang && r.language !== state.lang) return false;
+      if (state.tab === "all" && state.day && r.addedOn !== state.day) return false;
+      if (q) {
+        var hay = (r.full_name + " " + r.description + " " + (r.topics || []).join(" ") + " " + r.language).toLowerCase();
+        if (hay.indexOf(q) === -1) return false;
+      }
+      return true;
+    });
+    var s = state.sort;
+    list.sort(function (a, b) {
+      if (s === "new") return (b.addedOn || "").localeCompare(a.addedOn || "") || b.stars - a.stars;
+      if (s === "pushed") return (b.pushed_at || "").localeCompare(a.pushed_at || "");
+      if (s === "name") return a.full_name.localeCompare(b.full_name);
+      return b.stars - a.stars;
+    });
+    return list;
+  }
+  function syncTabs() {
+    document.querySelectorAll("#tabs button").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.getAttribute("data-tab") === state.tab));
+    });
+    $("#day").hidden = state.tab !== "all";
+  }
+  function buildCatChips() {
+    var box = $("#cats");
+    box.replaceChildren();
+    var defs = [["all", "All", "#9d9bb3"]].concat(CAT_KEYS.map(function (k) { return [k, CATS[k].label, CATS[k].dot]; }));
+    defs.forEach(function (d) {
+      var b = el("button", { class: "chip", type: "button", "data-cat": d[0], "aria-pressed": String(state.cat === d[0]) },
+        el("span", { class: "dot", style: "background:" + d[2] }), d[1]);
+      box.append(b);
+    });
+  }
+  function refreshSelects() {
+    var langCount = {}, days = {};
+    state.repos.forEach(function (r) {
+      if (r.language) langCount[r.language] = (langCount[r.language] || 0) + 1;
+      if (r.addedOn) days[r.addedOn] = true;
+    });
+    var langs = Object.keys(langCount).sort(function (a, b) { return langCount[b] - langCount[a] || a.localeCompare(b); });
+    var ls = $("#lang");
+    ls.replaceChildren(el("option", { value: "", text: "Any language" }));
+    langs.forEach(function (l) { ls.append(el("option", { value: l, text: l })); });
+    ls.value = langs.indexOf(state.lang) === -1 ? "" : state.lang;
+    state.lang = ls.value;
+    var ds = $("#day");
+    ds.replaceChildren(el("option", { value: "", text: "Any day" }));
+    Object.keys(days).sort().reverse().forEach(function (d) { ds.append(el("option", { value: d, text: dayLabel(d) })); });
+    ds.value = days[state.day] ? state.day : "";
+    state.day = ds.value;
+  }
+  function renderStats() {
+    var total = state.repos.size, star = 0;
+    state.repos.forEach(function (r) { if (r.starred) star++; });
+    var box = $("#stats");
+    box.replaceChildren(
+      el("span", null, el("b", { text: total.toLocaleString("en-US") }), " saved"),
+      el("span", null, el("b", { text: String(todaysCount()) }), " new today"),
+      el("span", null, el("b", { text: String(star) }), " on wishlist")
+    );
+  }
+  function repoCard(r) {
+    var cat = CATS[r.category] || { label: r.category, dot: "#9d9bb3" };
+    var parts = r.full_name.split("/");
+    var starBtn = el("button", { class: "starbtn", type: "button", "data-star": r.id, "aria-pressed": String(!!r.starred), "aria-label": (r.starred ? "Remove " : "Add ") + r.full_name + (r.starred ? " from" : " to") + " wishlist", title: r.starred ? "On your wishlist" : "Save to wishlist" });
+    starBtn.append(starSvg(r.starred));
+    return el("article", { class: "repo", tabindex: "0", "data-id": r.id },
+      el("h3", null, el("small", { text: parts[0] + "/" }), parts.slice(1).join("/")),
+      el("p", { text: r.description }),
+      el("div", { class: "meta" },
+        el("span", { class: "tag" }, el("span", { class: "dot", style: "background:" + cat.dot }), cat.label),
+        el("span", { text: "★ " + fmtStars(r.stars) }),
+        r.language ? el("span", { text: r.language }) : null
+      ),
+      starBtn
+    );
+  }
+  function render() {
+    renderStats();
+    refreshSelects();
+    var list = visible();
+    $("#count").textContent = list.length.toLocaleString("en-US") + " repo" + (list.length === 1 ? "" : "s");
+    var box = $("#list");
+    box.replaceChildren();
+    if (!list.length) {
+      var msg;
+      if (state.running && !state.repos.size) msg = "Fetching your first batch. This takes under a minute.";
+      else if (state.tab === "wish") msg = "Nothing on your wishlist yet. Tap the star on any repo to save it here.";
+      else if (state.tab === "today" && state.repos.size && !todaysCount()) msg = "No batch yet today. Press 'Get today's batch', or look in All saved.";
+      else if (!state.repos.size) msg = "Nothing saved yet. Press 'Get today's batch' to start.";
+      else msg = "No repos match those filters.";
+      box.append(el("div", { class: "empty", style: "grid-column:1/-1", text: msg }));
+    } else {
+      list.slice(0, state.limit).forEach(function (r) { box.append(repoCard(r)); });
+    }
+    $("#more").hidden = list.length <= state.limit;
+    $("#more").textContent = "Show more (" + Math.max(0, list.length - state.limit) + " left)";
+  }
+
+  /* ---------- Wishlist ---------- */
+  function toggleStar(id) {
+    var r = state.repos.get(id);
+    if (!r) return;
+    r.starred = !r.starred;
+    dbPutRepos([r]).catch(function () {});
+    render();
+    if (state.openId === id) renderDetail(r);
+  }
+
+  /* ---------- Detail panel ---------- */
+  function card(title, body) { return el("section", { class: "card" }, el("h3", { text: title }), body); }
+  function renderDetail(r) {
+    var key = profileFor(r), P = PROFILES[key];
+    var cat = CATS[r.category] || { label: r.category, dot: "#9d9bb3" };
+    var lic = licenseInfo(r.license);
+    var sheet = $("#sheet");
+    var starBtn = el("button", { class: "btn", type: "button", "aria-pressed": String(!!r.starred), onclick: function () { toggleStar(r.id); } }, r.starred ? "★ On wishlist" : "☆ Save to wishlist");
+    var closeBtn = el("button", { class: "btn", type: "button", id: "closeDetail", text: "Close", onclick: closeDetail });
+    var updated = r.pushed_at ? new Date(r.pushed_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
+    sheet.replaceChildren(
+      el("div", { class: "sheet-head" },
+        el("div", { class: "sheet-title" }, el("h2", { id: "sheetTitle", text: r.full_name }), el("div", { class: "row" }, starBtn, closeBtn)),
+        el("div", { class: "meta" },
+          el("span", { class: "tag" }, el("span", { class: "dot", style: "background:" + cat.dot }), cat.label),
+          el("span", { text: "★ " + r.stars.toLocaleString("en-US") }),
+          r.language ? el("span", { text: r.language }) : null,
+          updated ? el("span", { text: "updated " + updated }) : null
+        )
+      ),
+      card("Repo link", el("div", { class: "grid-less" },
+        el("p", null, el("a", { href: r.html_url, target: "_blank", rel: "noopener noreferrer", text: r.html_url })),
+        r.homepage ? el("p", { class: "note" }, "Project site: ", el("a", { href: /^https?:\/\//i.test(r.homepage) ? r.homepage : "https://" + r.homepage, target: "_blank", rel: "noopener noreferrer", text: r.homepage })) : null
+      )),
+      card("What it does", el("div", { style: "display:grid;gap:8px" },
+        el("p", { text: r.description }),
+        el("p", { class: "note", text: "In plain terms: a ready-made " + P.noun + (r.language ? " written in " + r.language : "") + ". You would be packaging it so people who don't code can use it, and getting paid for that." })
+      )),
+      card("Who it's for", el("p", { text: P.who })),
+      card("How to turn it into a business", el("div", { style: "display:grid;gap:8px" },
+        el("ul", null, P.ideas.map(function (i) { return el("li", null, el("b", { text: i[0] + ". " }), i[1]); })),
+        P.caution ? el("p", { class: "note", text: P.caution }) : null
+      )),
+      card("What the buyer gets", el("ul", null, P.gets.map(function (g) { return el("li", { text: g }); }))),
+      card("What you can charge", el("div", { style: "display:grid;gap:8px" },
+        el("div", { class: "table-wrap" }, el("table", null,
+          el("thead", null, el("tr", null, el("th", { text: "Way to charge" }), el("th", { text: "Typical price" }), el("th", { text: "Notes" }))),
+          el("tbody", null, P.prices.map(function (p) { return el("tr", null, el("td", { text: p[0] }), el("td", { class: "price", text: p[1] }), el("td", { text: p[2] })); }))
+        )),
+        el("p", { class: "note", text: "These are starting ideas based on what similar tools charge, not market research. Look up three competitors before you set your price." })
+      )),
+      card("How to find your first leads", el("div", { style: "display:grid;gap:8px" },
+        el("ul", null, P.leads.map(function (l) { return el("li", null, el("b", { text: l[0] + ". " }), l[1]); })),
+        el("p", { class: "note", text: "Read each community's rules before you post. Helping first works better than pitching." })
+      )),
+      card("License check", el("div", { style: "display:grid;gap:8px" },
+        el("div", { class: "lic " + lic[0] }, el("b", { text: lic[1] + ". " }), lic[2]),
+        el("p", { class: "note", text: "Also don't use the project's name or logo for your product. This is general information, not legal advice." })
+      ))
+    );
+    sheet.scrollTop = 0;
+  }
+  function openDetail(id, fromEl) {
+    var r = state.repos.get(id);
+    if (!r) return;
+    state.openId = id;
+    state.lastFocus = fromEl || null;
+    renderDetail(r);
+    $("#detail").hidden = false;
+    document.body.style.overflow = "hidden";
+    var c = $("#closeDetail");
+    if (c) c.focus();
+  }
+  function closeDetail() {
+    $("#detail").hidden = true;
+    state.openId = null;
+    document.body.style.overflow = "";
+    if (state.lastFocus && document.contains(state.lastFocus)) state.lastFocus.focus();
+  }
+
+  /* ---------- Backup ---------- */
+  function exportBackup() {
+    var data = {
+      app: "GoGitIt", version: 1, exportedAt: new Date().toISOString(),
+      repos: allRepos(), pool: state.pool, cursors: state.cursors, lastRefresh: state.lastRefresh
+    };
+    var blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+    var a = el("a", { href: URL.createObjectURL(blob), download: "gogitit-backup-" + today() + ".json" });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+  }
+  async function importBackup(file) {
+    try {
+      var data = JSON.parse(await file.text());
+      if (!data || data.app !== "GoGitIt" || !Array.isArray(data.repos)) throw new Error("bad");
+      var added = [];
+      data.repos.forEach(function (r) {
+        if (!r || !r.id || !r.full_name || !isOpenSource(r.license)) return;
+        var have = state.repos.get(r.id);
+        if (have) { if (r.starred && !have.starred) { have.starred = true; added.push(have); } return; }
+        state.repos.set(r.id, r); added.push(r);
+      });
+      if (Array.isArray(data.pool)) {
+        var known = new Set(state.pool.map(function (p) { return p.id; }));
+        data.pool.forEach(function (p) { if (p && p.id && isOpenSource(p.license) && !known.has(p.id) && !state.repos.has(p.id)) state.pool.push(p); });
+      }
+      state.pool = state.pool.filter(function (p) { return !state.repos.has(p.id); });
+      if (data.cursors && typeof data.cursors === "object") {
+        Object.keys(data.cursors).forEach(function (k) {
+          var mine = state.cursors[k], theirs = data.cursors[k];
+          if (!mine || theirs.page > mine.page) state.cursors[k] = theirs;
+        });
+      }
+      if (data.lastRefresh && (!state.lastRefresh || data.lastRefresh > state.lastRefresh)) state.lastRefresh = data.lastRefresh;
+      await dbPutRepos(added);
+      await saveMeta();
+      state.tab = "all";
+      syncTabs();
+      render();
+      showBanner("", el("span", { text: "Imported " + added.length + " repos from your backup." }));
+    } catch (e) {
+      showBanner("bad", el("span", { text: "That file isn't a GoGitIt backup." }));
+    }
+  }
+
+  /* ---------- Wiring ---------- */
+  $("#tabs").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-tab]");
+    if (!b) return;
+    state.tab = b.getAttribute("data-tab");
+    state.limit = 60;
+    syncTabs();
+    render();
+  });
+  $("#cats").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-cat]");
+    if (!b) return;
+    state.cat = b.getAttribute("data-cat");
+    state.limit = 60;
+    buildCatChips();
+    render();
+  });
+  $("#q").addEventListener("input", function (e) { state.q = e.target.value; state.limit = 60; render(); });
+  $("#lang").addEventListener("change", function (e) { state.lang = e.target.value; state.limit = 60; render(); });
+  $("#day").addEventListener("change", function (e) { state.day = e.target.value; state.limit = 60; render(); });
+  $("#sort").addEventListener("change", function (e) { state.sort = e.target.value; render(); });
+  $("#more").addEventListener("click", function () { state.limit += 60; render(); });
+  $("#btnRefresh").addEventListener("click", refresh);
+  $("#list").addEventListener("click", function (e) {
+    var star = e.target.closest("[data-star]");
+    if (star) { e.stopPropagation(); toggleStar(+star.getAttribute("data-star")); return; }
+    var card = e.target.closest(".repo");
+    if (card) openDetail(+card.getAttribute("data-id"), card);
+  });
+  $("#list").addEventListener("keydown", function (e) {
+    if ((e.key === "Enter" || e.key === " ") && e.target.classList.contains("repo")) {
+      e.preventDefault();
+      openDetail(+e.target.getAttribute("data-id"), e.target);
+    }
+  });
+  $("#scrim").addEventListener("click", closeDetail);
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !$("#detail").hidden) closeDetail(); });
+
+  $("#btnSettings").addEventListener("click", function () {
+    $("#minStars").value = settings.minStars;
+    $("#token").value = settings.token;
+    $("#settings").showModal();
+  });
+  $("#closeSettings").addEventListener("click", function () { $("#settings").close(); });
+  $("#saveSettings").addEventListener("click", function () {
+    var n = parseInt($("#minStars").value, 10);
+    settings.minStars = isNaN(n) || n < 0 ? 300 : n;
+    settings.token = $("#token").value.trim();
+    storeSettings();
+    $("#settings").close();
+  });
+  $("#btnExport").addEventListener("click", exportBackup);
+  $("#btnImport").addEventListener("click", function () { $("#importFile").click(); });
+  $("#importFile").addEventListener("change", function (e) {
+    var f = e.target.files && e.target.files[0];
+    if (f) { $("#settings").close(); importBackup(f); }
+    e.target.value = "";
+  });
+
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && state.lastRefresh !== today() && !state.running && db !== undefined) refresh();
+  });
+
+  /* ---------- Start ---------- */
+  async function start() {
+    loadSettings();
+    buildCatChips();
+    try { db = await openDB(); }
+    catch (e) {
+      db = null;
+      showBanner("warn", el("span", { text: "This browser won't let GoGitIt save data, so everything is lost when you close the page. Try Chrome or Edge opened from a normal window." }));
+    }
+    try {
+      var rows = await dbAllRepos();
+      rows.forEach(function (r) { state.repos.set(r.id, r); });
+      state.pool = (await dbGetMeta("pool")) || [];
+      state.cursors = (await dbGetMeta("cursors")) || {};
+      state.lastRefresh = (await dbGetMeta("lastRefresh")) || null;
+    } catch (e) {}
+    var drop = [];
+    state.repos.forEach(function (r) { if (!isOpenSource(r.license)) drop.push(r.id); });
+    drop.forEach(function (id) { state.repos.delete(id); });
+    state.pool = state.pool.filter(function (p) { return isOpenSource(p.license); });
+    if (drop.length) { try { await dbDeleteRepos(drop); await saveMeta(); } catch (e) {} }
+    syncTabs();
+    render();
+    if (state.lastRefresh !== today() || todaysCount() === 0) refresh();
+  }
+  start();
+})();
+</script>
+</body>
+</html>
