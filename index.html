@@ -98,6 +98,9 @@
     padding: 5px 12px; color: var(--muted); display: inline-flex; gap: 7px; align-items: center;
   }
   .chip[aria-pressed="true"] { border-color: var(--accent); color: var(--text); background: var(--panel); }
+  .row-label { color: var(--muted); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; margin-right: 2px; }
+  .chip .count { font-family: var(--font-num); font-size: 0.75rem; color: var(--muted); }
+  .chip.zero[aria-pressed="false"] { opacity: 0.5; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
   .search, select {
     background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; min-width: 0;
@@ -132,6 +135,7 @@
     background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; font-size: 0.9rem;
     width: max-content; max-width: calc(100% - 32px);
   }
+  .buildtag { color: var(--accent); }
   .more { justify-self: center; }
   .empty { text-align: center; color: var(--muted); padding: 40px 12px; border: 1px dashed var(--line); border-radius: 14px; }
 
@@ -207,6 +211,7 @@
       <input class="search" id="q" type="search" placeholder="Search name, description, topic, language" aria-label="Search saved repos">
     </div>
     <div class="row" id="cats"></div>
+    <div class="row" id="builds" role="group" aria-label="Build as"></div>
     <div class="row">
       <select id="lang" aria-label="Language"><option value="">Any language</option></select>
       <select id="day" aria-label="Day added" hidden><option value="">Any day</option></select>
@@ -388,7 +393,7 @@
   /* ---------- State ---------- */
   var state = {
     repos: new Map(), pool: [], cursors: {}, lastRefresh: null,
-    tab: "today", cat: "all", lang: "", day: "", sort: "stars", q: "", limit: 60,
+    tab: "today", cat: "all", build: "all", lang: "", day: "", sort: "stars", q: "", limit: 60,
     running: false, openId: null, lastFocus: null,
     seenOnly: new Set(), syncing: false, lastSync: 0, syncTimer: null
   };
@@ -833,6 +838,74 @@
     return ["warn", "License: " + spdx, "Read the license file before you sell anything built on this."];
   }
 
+  /* ---------- What you could build with it ---------- */
+  var BUILD_TYPES = [
+    { key: "webapp",    label: "Web app" },
+    { key: "website",   label: "Website" },
+    { key: "mobile",    label: "Mobile app" },
+    { key: "desktop",   label: "Desktop app" },
+    { key: "extension", label: "Browser extension" },
+    { key: "bot",       label: "Bot or automation" },
+    { key: "api",       label: "API or backend" }
+  ];
+  var BUILD_LABEL = {};
+  BUILD_TYPES.forEach(function (b) { BUILD_LABEL[b.key] = b.label; });
+  var BUILD_RULES = {
+    webapp: {
+      topics: ["webapp", "web-app", "web-application", "pwa", "progressive-web-app", "dashboard", "admin-panel", "admin-dashboard", "saas", "self-hosted", "selfhosted", "nextjs", "nuxt", "sveltekit", "remix", "django", "flask", "rails", "laravel", "htmx", "fullstack", "full-stack", "webui", "web-ui"],
+      re: /\b(web ?app(lication)?s?|web-based|browser-based|self-hosted|dashboard|saas|pwa|progressive web app|web ui|web interface|browser game|html5 game|web game)\b/,
+      langs: ["Vue", "Svelte"]
+    },
+    website: {
+      topics: ["website", "websites", "static-site", "static-site-generator", "ssg", "blog", "blogging", "cms", "headless-cms", "landing-page", "portfolio", "personal-website", "jekyll", "hugo", "gatsby", "astro", "eleventy", "wordpress", "wordpress-theme", "website-template"],
+      re: /\b(static site|site generator|blog engine|blogging platform|landing page|portfolio (site|website|template)|personal (site|website)|website (builder|template|generator)|cms|wordpress|content management)\b/,
+      langs: ["HTML"]
+    },
+    mobile: {
+      topics: ["android", "android-app", "ios", "ios-app", "flutter", "react-native", "mobile", "mobile-app", "expo", "ionic", "jetpack-compose", "swiftui", "xamarin"],
+      re: /\b(mobile app|mobile application|android app|ios app|iphone app|ipad app|flutter|react native)\b/,
+      langs: ["Dart"]
+    },
+    desktop: {
+      topics: ["electron", "tauri", "desktop", "desktop-app", "gtk", "gtk4", "qt", "qt5", "qt6", "wpf", "winui", "wxwidgets", "avalonia", "tkinter", "pyqt5", "pyqt6", "pyside6", "gui", "macos-app", "windows-app"],
+      re: /\b(desktop app|desktop application|desktop client|electron|tauri|cross-platform gui|system tray)\b/
+    },
+    extension: {
+      topics: ["browser-extension", "chrome-extension", "chrome-extensions", "firefox-addon", "firefox-extension", "webextension", "web-extension", "userscript"],
+      re: /\b((browser|chrome|firefox|edge|safari) (extension|add-?on)s?|userscripts?|tampermonkey|greasemonkey)\b/
+    },
+    bot: {
+      topics: ["bot", "discord-bot", "telegram-bot", "slack-bot", "whatsapp-bot", "chatbot", "automation", "workflow", "workflow-automation", "scraper", "web-scraping", "crawler", "rpa"],
+      re: /\b(bots?|chatbot|automat(e|es|ed|ion|ing)|scrapers?|scraping|crawler|rpa|workflow)\b/
+    },
+    api: {
+      topics: ["api", "rest-api", "restful", "graphql", "backend", "backend-service", "microservice", "microservices", "api-server", "grpc", "openapi", "sdk"],
+      re: /\b(rest(ful)? api|graphql|api server|backend|microservices?|sdk|webhooks?)\b/
+    }
+  };
+  var buildCache = new Map();
+  function buildTypes(r) {
+    var hit = buildCache.get(r.id);
+    if (hit) return hit;
+    var t = new Set((r.topics || []).map(function (x) { return String(x).toLowerCase(); }));
+    var h = ((r.full_name || "") + " " + (r.description || "")).toLowerCase();
+    var out = [];
+    BUILD_TYPES.forEach(function (bt) {
+      var rule = BUILD_RULES[bt.key];
+      var ok = rule.topics.some(function (x) { return t.has(x); }) ||
+        rule.re.test(h) ||
+        (rule.langs && rule.langs.indexOf(r.language) !== -1);
+      if (ok) out.push(bt.key);
+    });
+    buildCache.set(r.id, out);
+    return out;
+  }
+  function buildLabels(r, max) {
+    var keys = buildTypes(r);
+    if (max) keys = keys.slice(0, max);
+    return keys.map(function (k) { return BUILD_LABEL[k]; });
+  }
+
   /* ---------- Filtering and list ---------- */
   function allRepos() { return Array.from(state.repos.values()); }
   function latestDay() {
@@ -840,21 +913,23 @@
     state.repos.forEach(function (r) { if (r.addedOn && r.addedOn > d) d = r.addedOn; });
     return d;
   }
+  function passes(r, q, t, skipBuild) {
+    if (state.tab === "today" && r.addedOn !== t) return false;
+    if (state.tab === "wish" && !r.starred) return false;
+    if (state.cat !== "all" && r.category !== state.cat) return false;
+    if (state.lang && r.language !== state.lang) return false;
+    if (state.tab === "all" && state.day && r.addedOn !== state.day) return false;
+    if (q) {
+      var hay = (r.full_name + " " + r.description + " " + (r.topics || []).join(" ") + " " + r.language).toLowerCase();
+      if (hay.indexOf(q) === -1) return false;
+    }
+    if (!skipBuild && state.build !== "all" && buildTypes(r).indexOf(state.build) === -1) return false;
+    return true;
+  }
   function visible() {
     var q = state.q.trim().toLowerCase();
     var t = today();
-    var list = allRepos().filter(function (r) {
-      if (state.tab === "today" && r.addedOn !== t) return false;
-      if (state.tab === "wish" && !r.starred) return false;
-      if (state.cat !== "all" && r.category !== state.cat) return false;
-      if (state.lang && r.language !== state.lang) return false;
-      if (state.tab === "all" && state.day && r.addedOn !== state.day) return false;
-      if (q) {
-        var hay = (r.full_name + " " + r.description + " " + (r.topics || []).join(" ") + " " + r.language).toLowerCase();
-        if (hay.indexOf(q) === -1) return false;
-      }
-      return true;
-    });
+    var list = allRepos().filter(function (r) { return passes(r, q, t, false); });
     var s = state.sort;
     list.sort(function (a, b) {
       if (s === "new") return (b.addedOn || "").localeCompare(a.addedOn || "") || b.stars - a.stars;
@@ -878,6 +953,30 @@
       var b = el("button", { class: "chip", type: "button", "data-cat": d[0], "aria-pressed": String(state.cat === d[0]) },
         el("span", { class: "dot", style: "background:" + d[2] }), d[1]);
       box.append(b);
+    });
+  }
+  function buildBuildChips() {
+    var box = $("#builds");
+    box.replaceChildren(el("span", { class: "row-label", text: "Build as" }));
+    [{ key: "all", label: "Any" }].concat(BUILD_TYPES).forEach(function (d) {
+      box.append(el("button", { class: "chip", type: "button", "data-build": d.key, "aria-pressed": String(state.build === d.key) },
+        el("span", { text: d.label }), el("span", { class: "count" })));
+    });
+  }
+  function updateBuildCounts() {
+    var q = state.q.trim().toLowerCase(), t = today();
+    var counts = { all: 0 };
+    BUILD_TYPES.forEach(function (b) { counts[b.key] = 0; });
+    state.repos.forEach(function (r) {
+      if (!passes(r, q, t, true)) return;
+      counts.all++;
+      buildTypes(r).forEach(function (k) { counts[k]++; });
+    });
+    document.querySelectorAll("#builds [data-build]").forEach(function (b) {
+      var k = b.getAttribute("data-build");
+      b.querySelector(".count").textContent = String(counts[k] || 0);
+      b.setAttribute("aria-pressed", String(state.build === k));
+      b.classList.toggle("zero", k !== "all" && !counts[k]);
     });
   }
   function refreshSelects() {
@@ -921,7 +1020,8 @@
       el("div", { class: "meta" },
         el("span", { class: "tag" }, el("span", { class: "dot", style: "background:" + cat.dot }), cat.label),
         el("span", { text: "★ " + fmtStars(r.stars) }),
-        r.language ? el("span", { text: r.language }) : null
+        r.language ? el("span", { text: r.language }) : null,
+        buildTypes(r).length ? el("span", { class: "buildtag", text: buildLabels(r, 2).join(" / ") }) : null
       ),
       starBtn,
       shareBtn
@@ -930,6 +1030,7 @@
   function render() {
     renderStats();
     refreshSelects();
+    updateBuildCounts();
     var list = visible();
     $("#count").textContent = list.length.toLocaleString("en-US") + " repo" + (list.length === 1 ? "" : "s");
     var box = $("#list");
@@ -1133,6 +1234,7 @@
           el("span", { class: "tag" }, el("span", { class: "dot", style: "background:" + cat.dot }), cat.label),
           el("span", { text: "★ " + r.stars.toLocaleString("en-US") }),
           r.language ? el("span", { text: r.language }) : null,
+          buildTypes(r).length ? el("span", { class: "buildtag", text: "Build as: " + buildLabels(r).join(", ") }) : null,
           updated ? el("span", { text: "updated " + updated }) : null
         )
       ),
@@ -1251,6 +1353,13 @@
     buildCatChips();
     render();
   });
+  $("#builds").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-build]");
+    if (!b) return;
+    state.build = b.getAttribute("data-build");
+    state.limit = 60;
+    render();
+  });
   $("#q").addEventListener("input", function (e) { state.q = e.target.value; state.limit = 60; render(); });
   $("#lang").addEventListener("change", function (e) { state.lang = e.target.value; state.limit = 60; render(); });
   $("#day").addEventListener("change", function (e) { state.day = e.target.value; state.limit = 60; render(); });
@@ -1323,6 +1432,7 @@
   async function start() {
     loadSettings();
     buildCatChips();
+    buildBuildChips();
     try { db = await openDB(); }
     catch (e) {
       db = null;
